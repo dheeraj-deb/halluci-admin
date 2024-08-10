@@ -106,7 +106,10 @@
 }
 
 .logo {
-  position: relative;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  height: 100%;
 }
 /* Enable hover only on non-touch devices */
 @media (hover: hover) and (pointer: fine) {
