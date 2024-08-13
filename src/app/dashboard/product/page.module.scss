@@ -24,8 +24,11 @@
             label {
                 font-weight: 500;
             }
+
             .circle {
+                overflow: hidden;
                 display: flex;
+                // width: 20px;
                 align-items: center;
                 justify-content: center;
                 border-radius: 50%;
@@ -34,6 +37,7 @@
                 background: rgba(128, 128, 128, 0.199);
                 cursor: pointer;
             }
+
             .label {
                 display: flex;
                 align-items: center;

@@ -1,5 +1,5 @@
 "use client";
-import React, { useEffect, useState } from "react";
+import React, { FormEvent, useEffect, useState } from "react";
 import {
   Badge,
   Button,
@@ -12,17 +12,20 @@ import {
 } from "@mantine/core";
 import * as Yup from "yup";
 import { Pencil1Icon, TrashIcon, PlusIcon } from "@radix-ui/react-icons";
-import { AddProduct, GetProduct } from "../graphql/query";
+import { ADD_PRODUCT } from "../../graphql/mutations";
+import { GET_CATEGORIES, GET_PRODUCTS } from "../../graphql/query";
 import { useMutation, useQuery } from "@apollo/client";
 import { useFormik } from "formik";
 import { useDisclosure } from "@mantine/hooks";
 import sx from "./page.module.scss";
+import ResponsiveText from "@/components/ResponsiveText";
 
 // Define types
 interface Variation {
   color: string;
   image?: string;
   size: string;
+  editIndex?: boolean | number;
 }
 
 interface FormValues {
@@ -30,7 +33,8 @@ interface FormValues {
   description: string;
   category: string;
   price: string;
-  image?: string;
+  image: string;
+  stock: number;
   variations: Variation[];
 }
 
@@ -40,6 +44,7 @@ const validationSchema = Yup.object({
   description: Yup.string().required("Required"),
   category: Yup.string().required("Required"),
   price: Yup.number().required("Required").positive("Must be positive"),
+  stock: Yup.number().required("Required").positive("Must be positive"),
 });
 
 const Page: React.FC = () => {
@@ -48,11 +53,22 @@ const Page: React.FC = () => {
     color: "",
     image: "",
     size: "",
+    editIndex: false,
   });
   const [opened, { open, close }] = useDisclosure(false);
 
-  const { loading, error, data } = useQuery(GetProduct);
-  const [addProduct] = useMutation(AddProduct);
+  const { loading, error, data, refetch } = useQuery(GET_PRODUCTS);
+  const { data: categories } = useQuery(GET_CATEGORIES);
+
+  const [addProduct, { loading: loadingCreation }] = useMutation(ADD_PRODUCT, {
+    onError(e) {
+      console.log(e);
+    },
+    onCompleted() {
+      formik.resetForm();
+      refetch();
+    },
+  });
 
   const formik = useFormik<FormValues>({
     initialValues: {
@@ -61,21 +77,26 @@ const Page: React.FC = () => {
       category: "",
       price: "",
       image: "",
+      stock: 0,
       variations: [],
     },
     validationSchema,
     onSubmit: (values) => {
+      console.log("got");
+
       addProduct({
         variables: {
-          input: {
-            name: values.name,
-            description: values.description,
-            category: values.category,
-            price: parseFloat(values.price),
-            stock: 0, // Add stock as needed
-            image: file ? file.name : "",
-            variations: values.variations,
-          },
+          name: values.name,
+          description: values.description,
+          category: values.category,
+          price: parseFloat(values.price),
+          stock: values.stock,
+          image: file ? file.name : "",
+          variations: values.variations.map(({ color, size, image }) => ({
+            image,
+            color,
+            size,
+          })),
         },
       })
         .then((response) => {
@@ -87,14 +108,22 @@ const Page: React.FC = () => {
     },
   });
 
-  const createVariations = (e: Event) => {
+  const createVariations = (e: FormEvent) => {
     e.preventDefault();
+    if (typeof variation.editIndex === "number") {
+      const updatedVar = formik.values.variations.with(
+        variation.editIndex,
+        variation
+      );
 
-    formik.setFieldValue("variations", [
-      ...formik.values.variations,
-      variation,
-    ]);
-    setVariation({ color: "", image: "", size: "" });
+      formik.setFieldValue("variations", updatedVar);
+    } else {
+      formik.setFieldValue("variations", [
+        ...formik.values.variations,
+        variation,
+      ]);
+    }
+    setVariation({ color: "", image: "", size: "", editIndex: false });
     close();
   };
 
@@ -149,7 +178,7 @@ const Page: React.FC = () => {
           >
             <FileInput
               clearable
-              value={file}
+              // value={variation?.image}
               onChange={(file) => {
                 setVariation({ ...variation, image: file?.name });
               }}
@@ -157,7 +186,9 @@ const Page: React.FC = () => {
               placeholder="Select Product Image"
             />
           </Input.Wrapper>
-          <Button type="submit">Create</Button>
+          <Button type="submit" loading={loadingCreation}>
+            Create
+          </Button>
         </form>
       </Modal>
 
@@ -197,8 +228,13 @@ const Page: React.FC = () => {
               onBlur={formik.handleBlur}
             >
               <option value="">Select Category</option>
-              <option value="Type 1">Type 1</option>
-              <option value="Type 2">Type 2</option>
+              {categories?.getCategories?.map(
+                (category: { label: string; _id: string }, index: number) => (
+                  <option value={category._id} key={index}>
+                    {category.label}
+                  </option>
+                )
+              )}
             </Input>
           </Input.Wrapper>
           <Input.Wrapper
@@ -214,20 +250,47 @@ const Page: React.FC = () => {
             />
           </Input.Wrapper>
 
+          <Input.Wrapper
+            label="Stock"
+            error={formik.touched.stock && formik.errors.stock}
+          >
+            <Input
+              name="stock"
+              type="number"
+              value={formik.values.stock}
+              onChange={formik.handleChange}
+              onBlur={formik.handleBlur}
+            />
+          </Input.Wrapper>
+
           <div className={sx.var}>
             <label>Variations</label>
-            <Group>
+            <Group className={sx.variationGroup}>
               {formik.values.variations.map((e, index) => (
                 <div
                   key={index}
                   className={sx.circle}
                   style={{ background: e.color }}
-                  onClick={open}
+                  onClick={() => {
+                    setVariation({ ...e, editIndex: index });
+                    open();
+                  }}
                 >
-                  <span>{e.size}</span>
+                  {e.size}
                 </div>
               ))}
-              <div className={sx.circle} onClick={open}>
+              <div
+                className={sx.circle}
+                onClick={() => {
+                  setVariation({
+                    color: "",
+                    size: "",
+                    image: "",
+                    editIndex: false,
+                  });
+                  open();
+                }}
+              >
                 <PlusIcon alignmentBaseline="middle" />
               </div>
             </Group>
@@ -256,6 +319,8 @@ const Page: React.FC = () => {
             <Table.Th>Product Name</Table.Th>
             <Table.Th>Description</Table.Th>
             <Table.Th>Price</Table.Th>
+            <Table.Th>Stock</Table.Th>
+
             <Table.Th>Category</Table.Th>
             <Table.Th>Variations</Table.Th>
             <Table.Th>Image</Table.Th>
@@ -268,6 +333,7 @@ const Page: React.FC = () => {
               <Table.Td>{element?.name}</Table.Td>
               <Table.Td>{element?.description}</Table.Td>
               <Table.Td>{element?.price}</Table.Td>
+              <Table.Td>{element?.stock}</Table.Td>
               <Table.Td>{element?.category}</Table.Td>
               <Table.Td>
                 {element?.variations?.map((e: Variation, index: number) => (
